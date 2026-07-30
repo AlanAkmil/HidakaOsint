@@ -1,5 +1,161 @@
 import axios from 'axios';
 
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+const TIMEOUT = 6000;
+
+function client() {
+    return axios.create({
+        timeout: TIMEOUT,
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
+        validateStatus: () => true, // kita cek status manual, jangan throw di 4xx
+        maxRedirects: 3
+    });
+}
+
+/**
+ * Setiap checker return: { exists: true|false|null, note }
+ * exists = null artinya gak bisa dipastikan (platform blokir/anti-bot),
+ * jangan dianggap "active" kalau gak yakin.
+ */
+const checkers = {
+    async github(username) {
+        const r = await client().get(`https://api.github.com/users/${encodeURIComponent(username)}`);
+        if (r.status === 200) return { exists: true, note: `${r.data.public_repos ?? 0} public repos` };
+        if (r.status === 404) return { exists: false };
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async reddit(username) {
+        const r = await client().get(`https://www.reddit.com/user/${encodeURIComponent(username)}/about.json`);
+        if (r.status === 200 && r.data?.data?.name) return { exists: true, note: `karma: ${r.data.data.total_karma ?? '?'}` };
+        if (r.status === 404) return { exists: false };
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async instagram(username) {
+        const r = await client().get(`https://www.instagram.com/${encodeURIComponent(username)}/`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/Sorry, this page isn't available/i.test(body)) return { exists: false };
+            if (/"username":"/i.test(body) || /profilePage_/i.test(body)) return { exists: true };
+            return { exists: null, note: 'perlu login untuk verifikasi penuh' };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async tiktok(username) {
+        const r = await client().get(`https://www.tiktok.com/@${encodeURIComponent(username)}`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/Couldn't find this account/i.test(body)) return { exists: false };
+            if (/"uniqueId":"/i.test(body)) return { exists: true };
+            return { exists: null, note: 'anti-bot, hasil gak pasti' };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async pinterest(username) {
+        const r = await client().get(`https://www.pinterest.com/${encodeURIComponent(username)}/`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/user not found/i.test(body)) return { exists: false };
+            return { exists: true };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async spotify(username) {
+        const r = await client().get(`https://open.spotify.com/user/${encodeURIComponent(username)}`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) return { exists: true };
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async youtube(username) {
+        const r = await client().get(`https://www.youtube.com/@${encodeURIComponent(username)}`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/This channel does not exist/i.test(body)) return { exists: false };
+            return { exists: true };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async steam(username) {
+        const r = await client().get(`https://steamcommunity.com/id/${encodeURIComponent(username)}/?xml=1`);
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/<error>The specified profile could not be found/i.test(body)) return { exists: false };
+            if (/<steamID64>/i.test(body)) return { exists: true };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    },
+
+    async twitch(username) {
+        const r = await client().get(`https://www.twitch.tv/${encodeURIComponent(username)}`);
+        if (r.status === 404) return { exists: false };
+        if (r.status === 200) {
+            const body = String(r.data || '');
+            if (/Sorry\.? Unless you've got a time machine/i.test(body)) return { exists: false };
+            return { exists: true };
+        }
+        return { exists: null, note: `HTTP ${r.status}` };
+    }
+};
+
+// Platform yang scraping-nya gak reliable (butuh login/API key/anti-bot ketat) —
+// jujur ditandai "unsupported" daripada tebak-tebakan.
+const unsupported = ['Twitter/X', 'Discord', 'LinkedIn', 'Facebook', 'Snapchat'];
+
+async function runUsernameChecks(rawUsername) {
+    const username = rawUsername.replace('@', '').trim();
+    const platformNames = {
+        github: 'GitHub', reddit: 'Reddit', instagram: 'Instagram', tiktok: 'TikTok',
+        pinterest: 'Pinterest', spotify: 'Spotify', youtube: 'YouTube', steam: 'Steam', twitch: 'Twitch'
+    };
+
+    const entries = Object.entries(checkers);
+    const settled = await Promise.allSettled(entries.map(([key, fn]) => fn(username)));
+
+    const results = [];
+    let foundCount = 0;
+    let checkedCount = 0;
+
+    settled.forEach((res, i) => {
+        const [key] = entries[i];
+        const name = platformNames[key];
+        if (res.status !== 'fulfilled') {
+            results.push({ label: 'Platform', value: `${name} (gagal dicek)`, source: name, confidence: 'low' });
+            return;
+        }
+        const { exists, note } = res.value;
+        checkedCount++;
+        if (exists === true) {
+            foundCount++;
+            results.push({
+                label: 'Platform',
+                value: `${name} — akun ditemukan${note ? ` (${note})` : ''}`,
+                source: `https://${key === 'github' ? 'github.com' : key + '.com'}`,
+                confidence: 'high'
+            });
+        } else if (exists === false) {
+            results.push({ label: 'Platform', value: `${name} — tidak ditemukan`, source: name, confidence: 'high' });
+        } else {
+            results.push({ label: 'Platform', value: `${name} — tidak bisa dipastikan${note ? ` (${note})` : ''}`, source: name, confidence: 'low' });
+        }
+    });
+
+    unsupported.forEach(name => {
+        results.push({ label: 'Platform', value: `${name} — belum didukung (butuh API/login)`, source: name, confidence: 'low' });
+    });
+
+    return { results, total: checkedCount, platforms: foundCount };
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -20,107 +176,88 @@ export default async function handler(req, res) {
         let platforms = 0;
         let total = 0;
 
-        // === Email Search ===
-        if (type === 'email') {
-            // Holehe-style search (120+ platforms)
-            const socialPlatforms = [
-                { name: 'Instagram', url: `https://www.instagram.com/${query.split('@')[0]}` },
-                { name: 'Twitter', url: `https://twitter.com/${query.split('@')[0]}` },
-                { name: 'GitHub', url: `https://github.com/${query.split('@')[0]}` },
-                { name: 'Discord', url: `https://discord.com/users/${query.split('@')[0]}` },
-                { name: 'LinkedIn', url: `https://www.linkedin.com/in/${query.split('@')[0]}` },
-                { name: 'Spotify', url: `https://open.spotify.com/user/${query.split('@')[0]}` },
-                { name: 'Pinterest', url: `https://www.pinterest.com/${query.split('@')[0]}` },
-                { name: 'Tumblr', url: `https://${query.split('@')[0]}.tumblr.com` },
-                { name: 'Reddit', url: `https://www.reddit.com/user/${query.split('@')[0]}` },
-                { name: 'YouTube', url: `https://www.youtube.com/@${query.split('@')[0]}` }
-            ];
+        if (type === 'email' || type === 'username') {
+            const usernameGuess = type === 'email' ? query.split('@')[0] : query;
+            const r = await runUsernameChecks(usernameGuess);
+            results = r.results;
+            total = r.total;
+            platforms = r.platforms;
 
-            // Mock detection — each platform coba diakses
-            for (const platform of socialPlatforms) {
+            if (type === 'email') {
                 try {
-                    const resp = await axios.head(platform.url, { timeout: 3000 });
-                    if (resp.status < 400) {
+                    const breachResp = await client().get(
+                        `https://api.xposedornot.com/v1/check-email/${encodeURIComponent(query)}`
+                    );
+                    if (breachResp.status === 200 && breachResp.data?.breaches) {
+                        // breaches is a nested array, e.g. [["Adobe","LinkedIn",...]]
+                        const siteList = (breachResp.data.breaches[0] || []).join(', ');
                         results.push({
-                            label: 'Platform',
-                            value: `${platform.name} (active)`,
-                            source: platform.url,
+                            label: 'Breach Check',
+                            value: `Ditemukan di ${breachResp.data.breaches[0]?.length ?? 0} breach: ${siteList}`,
+                            source: 'XposedOrNot',
                             confidence: 'high'
                         });
-                        platforms++;
-                        total++;
-                    }
-                } catch (err) {
-                    // Platform tidak ditemukan atau error
-                    if (err.response && err.response.status === 404) {
-                        // Tidak aktif
+                    } else if (breachResp.status === 404) {
+                        results.push({
+                            label: 'Breach Check',
+                            value: 'Tidak ditemukan di breach database manapun',
+                            source: 'XposedOrNot',
+                            confidence: 'high'
+                        });
                     } else {
-                        // Skip — mungkin platform blokir request
-                    }
-                }
-                // Jeda biar gak kena rate limit
-                await new Promise(r => setTimeout(r, 100));
-            }
-
-            // Breach check (simulasi)
-            results.push({
-                label: 'Breach Check',
-                value: 'No breaches found (simulated)',
-                source: 'HaveIBeenPwned',
-                confidence: 'medium'
-            });
-            total++;
-
-        // === Username Search ===
-        } else if (type === 'username') {
-            const platforms = ['Instagram', 'Twitter', 'GitHub', 'Reddit', 'YouTube', 'TikTok', 'Pinterest', 'Spotify'];
-            for (const platform of platforms) {
-                const url = `https://www.${platform.toLowerCase()}.com/${query.replace('@', '')}`;
-                try {
-                    const resp = await axios.head(url, { timeout: 3000 });
-                    if (resp.status < 400) {
                         results.push({
-                            label: 'Platform',
-                            value: `${platform} (active)`,
-                            source: url,
-                            confidence: 'high'
+                            label: 'Breach Check',
+                            value: `Gagal cek breach (HTTP ${breachResp.status})`,
+                            source: 'XposedOrNot',
+                            confidence: 'low'
                         });
-                        platforms++;
-                        total++;
                     }
                 } catch (err) {
-                    // Skip
+                    results.push({
+                        label: 'Breach Check',
+                        value: 'Gagal cek breach (rate limit atau server down)',
+                        source: 'XposedOrNot',
+                        confidence: 'low'
+                    });
                 }
-                await new Promise(r => setTimeout(r, 100));
+                total++;
             }
 
-        // === Phone Search ===
         } else if (type === 'phone') {
+            // Validasi format doang, bukan data carrier/lokasi asli (itu butuh API berbayar)
+            const cleaned = query.replace(/[^\d+]/g, '');
+            const isValidFormat = /^\+?[1-9]\d{7,14}$/.test(cleaned);
             results = [
-                { label: 'Carrier', value: 'Telkomsel (simulated)', source: 'Phone API', confidence: 'high' },
-                { label: 'Location', value: 'Jakarta, Indonesia', source: 'Phone API', confidence: 'medium' },
-                { label: 'WhatsApp', value: 'Registered', source: 'WhatsApp Check', confidence: 'high' }
+                {
+                    label: 'Format',
+                    value: isValidFormat ? 'Format nomor valid (E.164)' : 'Format nomor tidak valid',
+                    source: 'Validasi lokal',
+                    confidence: 'high'
+                },
+                {
+                    label: 'Carrier / Lokasi',
+                    value: 'Belum tersedia — butuh integrasi API berbayar (Numverify, dll)',
+                    source: 'N/A',
+                    confidence: 'low'
+                }
             ];
             total = results.length;
-            platforms = 2;
+            platforms = 0;
 
-        // === IP Search ===
         } else if (type === 'ip') {
             try {
                 const geoResp = await axios.get(`https://ipapi.co/${query}/json/`);
                 const geo = geoResp.data;
                 results = [
-                    { label: 'ISP', value: geo.org || 'Unknown', source: 'IP Geolocation', confidence: 'high' },
-                    { label: 'Country', value: geo.country_name || 'Unknown', source: 'IP Geolocation', confidence: 'high' },
-                    { label: 'City', value: geo.city || 'Unknown', source: 'IP Geolocation', confidence: 'medium' },
-                    { label: 'Lat/Lon', value: `${geo.latitude || 0}, ${geo.longitude || 0}`, source: 'IP Geolocation', confidence: 'medium' }
+                    { label: 'ISP', value: geo.org || 'Unknown', source: 'ipapi.co', confidence: 'high' },
+                    { label: 'Country', value: geo.country_name || 'Unknown', source: 'ipapi.co', confidence: 'high' },
+                    { label: 'City', value: geo.city || 'Unknown', source: 'ipapi.co', confidence: 'medium' },
+                    { label: 'Lat/Lon', value: `${geo.latitude || 0}, ${geo.longitude || 0}`, source: 'ipapi.co', confidence: 'medium' }
                 ];
                 total = results.length;
                 platforms = 1;
             } catch (err) {
-                results = [
-                    { label: 'IP', value: query, source: 'Local', confidence: 'low' }
-                ];
+                results = [{ label: 'IP', value: query, source: 'Local', confidence: 'low' }];
                 total = 1;
                 platforms = 0;
             }
@@ -128,21 +265,11 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
             success: true,
-            data: {
-                query,
-                type,
-                timestamp: new Date().toISOString(),
-                total,
-                platforms,
-                results
-            }
+            data: { query, type, timestamp: new Date().toISOString(), total, platforms, results }
         });
 
     } catch (err) {
         console.error('OSINT Error:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Internal server error: ' + err.message
-        });
+        return res.status(500).json({ success: false, message: 'Internal server error: ' + err.message });
     }
 }
