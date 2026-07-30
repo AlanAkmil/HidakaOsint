@@ -116,12 +116,17 @@ function renderResults(data) {
 
     if (data.results && data.results.length > 0) {
         data.results.forEach(item => {
+            const src = item.source || 'Unknown';
+            const isLink = /^https?:\/\//i.test(src);
+            const sourceHtml = isLink
+                ? `<a href="${src}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);text-decoration:underline;">${src}</a>`
+                : src;
             html += `
                 <div class="result-item">
                     <div>
                         <div class="label">${item.label || 'Info'}</div>
                         <div class="value">${item.value || '-'}</div>
-                        <div class="source">Source: ${item.source || 'Unknown'}</div>
+                        <div class="source">Source: ${sourceHtml}</div>
                     </div>
                     <span class="badge ${item.confidence === 'high' ? 'success' : item.confidence === 'medium' ? 'warning' : 'danger'}">
                         ${item.confidence || 'unknown'}
