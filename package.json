@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "description": "HidakaOSINT Pro — All-in-one OSINT tool by AlanMind AI Studio",
   "main": "api/osint.js",
+  "type": "module",
   "scripts": {
     "start": "vercel dev"
   },
