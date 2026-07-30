@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HidakaOSINT Pro — All-in-One OSINT</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-robot"></i>
+                <span>Hidaka<span class="highlight">OSINT</span></span>
+                <span class="badge-pro">PRO</span>
+            </div>
+            <p class="subtitle">🔍 All-in-One OSINT Tool — 120+ Social Platforms + Breach Database</p>
+        </header>
+
+        <div class="search-section">
+            <div class="search-type">
+                <button class="type-btn active" data-type="email">
+                    <i class="fas fa-envelope"></i> Email
+                </button>
+                <button class="type-btn" data-type="username">
+                    <i class="fas fa-user"></i> Username
+                </button>
+                <button class="type-btn" data-type="phone">
+                    <i class="fas fa-phone"></i> Phone
+                </button>
+                <button class="type-btn" data-type="ip">
+                    <i class="fas fa-network-wired"></i> IP
+                </button>
+            </div>
+
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Masukkan email / username / nomor / IP..." />
+                <button id="searchBtn"><i class="fas fa-search"></i> Lacak</button>
+            </div>
+
+            <div class="quick-formats">
+                <span>Format: </span>
+                <span class="format-tag">user@domain.com</span>
+                <span class="format-tag">@username</span>
+                <span class="format-tag">+628123456789</span>
+            </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>🔎 Menelusuri 120+ platform & breach database...</p>
+            <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+
+        <div id="resultContainer" class="result-container hidden">
+            <div class="result-header">
+                <h3><i class="fas fa-chart-line"></i> Hasil Penelusuran</h3>
+                <div>
+                    <button id="exportBtn"><i class="fas fa-download"></i> Export JSON</button>
+                    <button id="reportBtn"><i class="fas fa-file-pdf"></i> Report</button>
+                </div>
+            </div>
+            <div id="resultContent"></div>
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <i class="fas fa-database"></i>
+                <h4>120+ Platform</h4>
+                <p>Instagram, Twitter, GitHub, Discord, LinkedIn, & many more</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-shield-alt"></i>
+                <h4>Breach Database</h4>
+                <p>Check if email leaked in data breaches</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-globe"></i>
+                <h4>Multi-Engine</h4>
+                <p>Holehe + Social Search + IP Geolocation</p>
+            </div>
+        </div>
+
+        <footer>
+            <p>© 2026 HidakaOSINT Pro · Created by Alan · <i class="fas fa-code"></i> Open Source</p>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
