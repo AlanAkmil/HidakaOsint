@@ -295,7 +295,6 @@ export default async function handler(req, res) {
             }
 
             total = results.length;
-        }
 
         } else if (type === 'phone') {
             // Validasi format doang, bukan data carrier/lokasi asli (itu butuh API berbayar)
